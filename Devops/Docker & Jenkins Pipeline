@@ -1,0 +1,84 @@
+the breakdown of the DevOps tools, Linux permissions, and the Docker/Jenkins pipeline configuration.
+
+1. DevOps Tools & Concepts 
+In the file explorer image, several core DevOps tools are listed. Here is what they are used for:
+
+Ansible: Configuration management. It automates the setup of software on many servers at once.
+
+Terraform: Infrastructure as Code (IaC). Used to "spin up" resources like VPCs and EC2 instances on AWS.
+
+Docker: Containerization. It packages an application with all its dependencies so it runs the same everywhere.
+
+Kubernetes (K8s): Container orchestration. It manages clusters of Docker containers, handling scaling and self-healing.
+
+Jenkins: Continuous Integration/Continuous Deployment (CI/CD). It automates the building, testing, and deployment of code.
+
+ECR (Elastic Container Registry): A private place on AWS to store and manage your Docker images.
+
+2. Understanding chmod 722
+Linux permissions are divided into three sections (User, Group, Others) and three types (Read=4, Write=2, Execute=1).
+
+The Breakdown of 722:
+Section	Digit	Binary Calculation	Permissions	Meaning
+Owner (User)	7	4 (R) + 2 (W) + 1 (X)	rwx	Can do everything.
+Group	2	0 (R) + 2 (W) + 0 (X)	-w-	Can only write (no read/execute).
+Others	2	0 (R) + 2 (W) + 0 (X)	-w-	Can only write (no read/execute).
+Warning: Using 722 is very rare and usually insecure, as others can modify your file but cannot even see what is in it.
+
+3. Vulnerability Scanning & Self-Destruction
+How to know if a Docker image is vulnerable:
+You use Scanners that compare your image layers against a database of known vulnerabilities (CVEs).
+
+Trivy: The industry favorite. Run trivy image <image_name>.
+
+Snyk: Great for developer-friendly reports. Run snyk container test <image_name>.
+
+Docker Scout: Built directly into Docker Desktop and CLI.
+
+Creating a Self-Destroying EC2:
+In your interview step 15, you need to ensure no resources remain. You can automate this using:
+
+TTL (Time to Live) Script: Use a cron job or a at command in the User Data script that runs sudo shutdown -h +60 (shuts down in 60 mins).
+
+Terraform: Use terraform destroy -auto-approve at the end of your pipeline.
+
+4. Docker & Jenkins Pipeline
+Here is a Dockerfile and a Jenkinsfile snippet to handle the workflow you described (Build → Scan → Push → Deploy).
+
+Dockerfile (Ubuntu + Python)
+Dockerfile
+FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y python3
+WORKDIR /app
+COPY hello.py .
+# Run the script when the container starts
+CMD ["python3", "hello.py"]
+Jenkins Pipeline (CI/CD with Security Gate)
+This pipeline logic includes the "Critical vs Low" vulnerability check you requested:
+
+Groovy
+pipeline {
+    agent any
+    stages {
+        stage('Build & Scan') {
+            steps {
+                sh 'docker build -t my-app:latest .'
+                // Run Trivy scan and save result. 
+                // --exit-code 1 makes it fail the build if CRITICAL is found.
+                sh 'trivy image --severity CRITICAL --exit-code 1 my-app:latest'
+                // If the above passes, it means no CRITICALS were found.
+            }
+        }
+        stage('Push to ECR') {
+            steps {
+                sh 'aws ecr get-login-password --region mumbai | docker login ...'
+                sh 'docker push <aws_account_id>.dkr.ecr.mumbai.amazonaws.com/my-app:latest'
+            }
+        }
+        stage('Deploy to K8s') {
+            steps {
+                sh 'kubectl apply -f deployment.yaml'
+            }
+        }
+    }
+}
