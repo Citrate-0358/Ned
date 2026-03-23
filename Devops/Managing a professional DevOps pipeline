@@ -1,0 +1,114 @@
+Managing a professional DevOps pipeline requires a clear separation between how code moves (Git branching) and how it is deployed (Jenkins/Argo CD).
+
+1. Branching Strategy (Dev, QA, UAT, Prod)
+To segregate environments,  should use GitFlow or Environment Branching.
+
+Feature Branches: Create these from develop. Once the task is done, merge back to develop.
+
+Develop Branch (Dev): The integration branch. Every commit here triggers a build/deploy to the Dev Environment.
+
+QA/Release Branch: When code is stable in Dev, merge develop into a release/* branch. This triggers deployment to the QA Environment for testing.
+
+UAT/Staging Branch: After QA passes, merge into a staging branch for User Acceptance Testing (UAT).
+
+Main Branch (Prod): After UAT approval, merge to main (or master). This is the "Gold" version. Tags like v1.2.0 (Sigma/Semantic Versioning) are applied here.
+
+Sigma (Semantic) Versioning
+Use the MAJOR.MINOR.PATCH format (e.g., 1.2.4):
+
+Major: Breaking changes.
+
+Minor: New features (backward compatible).
+
+Patch: Bug fixes.
+
+2. Jenkins Git Configuration & Triggers
+Why  build isn't triggering:
+If you have 100 releases and use --depth 1, Jenkins only sees the "tip" of the branch.
+
+The Issue: If your webhook or "Poll SCM" relies on comparing the current commit to the previous one, and Jenkins didn't fetch the history, it might fail to detect the change.
+
+Fix: In Jenkins Git settings, ensure "Shallow clone" is unchecked or set the depth high enough (e.g., --depth 5) to allow for merge analysis.
+
+Git Config Tip: Use git config --global pull.rebase true to keep a linear history, making it easier for Jenkins to track changes.
+
+3. Jenkins SSO with AWS (SAML vs. OIDC)
+Integrating Jenkins with AWS IAM Identity Center (formerly AWS SSO):
+
+Feature	SAML 2.0	OIDC (OpenID Connect)
+Protocol	XML-based	JSON/REST-based
+Security	Older, but industry standard for SSO.	More Secure/Modern. Uses JWT tokens and is better for APIs.
+Plugin	Jenkins "SAML Plugin"	Jenkins "OIDC Provider Plugin"
+Setup Steps:
+
+AWS Side: In IAM Identity Center, create a Customer Managed Application.
+
+Metadata: Download the SAML Metadata XML from AWS.
+
+Jenkins Side: Install the SAML Plugin. Go to Security -> Security Realm -> SAML 2.0. Paste the XML metadata.
+
+Groups: Map AWS Groups (e.g., DevOps-Admin) to Jenkins Roles using the Role-Based Strategy Plugin.
+
+4. Deployment: EKS, EC2, and Fargate
+Deployment depends on how much "server management" you want to do:
+
+EC2: Standard Virtual Machines. You manage the OS, patching, and scaling.
+
+EKS (Elastic Kubernetes Service): Managed Kubernetes. You manage the "Nodes" (EC2) or use Fargate to run "Serverless" Pods.
+
+Fargate: Serverless compute for containers. You don't manage any servers; you just provide the Docker image and pay for CPU/RAM used.
+
+5. Argo CD vs. Jenkins (The "GitOps" Way)
+The most modern approach is to use Jenkins for CI and Argo CD for CD.
+
+Jenkins (Build):
+
+Clones code from Git.
+
+Builds Docker Image.
+
+Scans image with Trivy or Snyk.
+
+Pushes image to AWS ECR.
+
+Crucial Step: Jenkins updates a separate Git repo (the "Manifest Repo") with the new image tag.
+
+Argo CD (Deploy):
+
+Argo CD "watches" the Manifest Repo.
+
+The moment Jenkins updates the tag, Argo CD sees the "Out of Sync" status.
+
+It automatically "Syncs" (pulls) the change and updates the EKS or K8s cluster.
+
+Deployment Strategies
+Blue-Green: You have two identical environments (Blue=Old, Green=New). You switch 100% of traffic to Green. If it fails, you switch back to Blue instantly.
+
+Canary: You deploy the new version to only 5% of users. If they don't report bugs, you slowly increase to 100%. Argo Rollouts is the best tool for this on Kubernetes.
+
+Your Docker + Jenkins Pipeline Task
+Here is the Jenkinsfile logic to build, scan, and prepare for Argo CD:
+
+Groovy
+pipeline {
+    agent any
+    stages {
+        stage('CI: Build & Scan') {
+            steps {
+                sh 'docker build -t my-app:${BUILD_NUMBER} .'
+                // Critical check: Fail build if high vulnerabilities found
+                sh 'trivy image --severity CRITICAL --exit-code 1 my-app:${BUILD_NUMBER}'
+            }
+        }
+        stage('CD: Update Manifest') {
+            steps {
+                // This 'pushes' to the repo ArgoCD is watching
+                dir('manifest-repo') {
+                    sh "sed -i 's/tag:.*/tag: ${BUILD_NUMBER}/' deployment.yaml"
+                    sh "git commit -am 'Update image to ${BUILD_NUMBER}' && git push"
+                }
+            }
+        }
+    }
+}
+Would you like me to provide the specific IAM Policy required for the Jenkins user to push images to ECR?
