@@ -1,0 +1,78 @@
+ cover the architecture, the "Why," and the "How" for every tool mentioned.
+
+🚀Lesson 1: The Infrastructure Foundation (IaC & Provisioning)
+see Terraform and CloudFormation. These are used to build the "house" before you move the "furniture" (apps) in.
+
+1.1 Terraform vs. Ansible
+Terraform (Declarative): 
+(e.g., "I want 3 EC2 instances"). It figures out how to build them. It is Stateful (it remembers what it built in a terraform.tfstate file).
+
+Ansible (Procedural/Hybrid):  steps to take (e.g., "Update apt, install Nginx, restart service"). It is Stateless and uses SSH.
+
+1.2 The "Self-Destruct" Logic
+If delete everything.
+
+In Terraform: terraform destroy -auto-approve.
+
+In AWS Lambda:can write a script that identifies instances with Tag: env=demo and calls ec2.terminate_instances().
+
+🚀Lesson 2: Containerization & Orchestration (Docker, EKS, Fargate)
+You mentioned moving JAR files from Git to ECR and then to K8s.
+
+2.1 The Container Lifecycle
+Build: Jenkins clones the code.
+
+Scan: Use Trivy.
+
+Logic: If Trivy finds a CRITICAL vulnerability, exit 1 (Stop the pipeline). If LOW, exit 0 (Continue).
+
+Push: Image is tagged (e.g., v1.0.1) and pushed to Amazon ECR.
+
+Deploy: * EKS (EC2 Launch Type): can manage the worker nodes. Better for custom networking.
+
+EKS (Fargate Profile): "Serverless" Kubernetes. No nodes to manage. AWS handles the scaling.
+
+🚀Lesson 3: The Observability Stack (Logging & Metrics)
+You asked about ELK, Prometheus, and Grafana.
+
+3.1 Metrics (Prometheus + Grafana)
+Scraping: Prometheus "pulls" data from an endpoint (usually port 9100 for Node Exporter).
+
+Visualizing: Grafana connects to Prometheus. You create "Timelapse" dashboards to see CPU/Memory trends.
+
+CloudWatch Integration: can use the CloudWatch Data Source in Grafana to see RDS or CloudFront metrics without installing agents.
+
+3.2 Logging (EFK: Elasticsearch, Fluent Bit, Kibana)
+Why Fluent Bit? In Kubernetes, logs are written to files on the node. Fluent Bit runs as a DaemonSet (one pod per node), reads those files, and ships them to Elasticsearch.
+
+The "Index Hanging" Fix: If your ELK is hanging, it's likely a Shard issue.
+
+Lesson: Don't let indexes grow forever. Use Index Lifecycle Management (ILM) to transition logs from "Hot" (fast SSD) to "Warm" (cheap storage) to "Delete."
+
+🚀Lesson 4: Linux Mastery (Permissions & Delimiters)
+4.1 The 722 Permission Secret
+You need to know the "3 sections" for your interview:
+
+User (7): Read(4) + Write(2) + Execute(1) = Full Control.
+
+Group (2): Write(2) = Can only modify, cannot see or run.
+
+Others (2): Write(2) = Can only modify.
+
+4.2 The "Big Three" Text Tools
+cut -d ':' -f 1 /etc/passwd: Splits a line by the colon : and takes the 1st part (the username).
+
+awk '{print $1}': Splits by whitespace automatically. Great for logs.
+
+sed -i 's/old/new/g' file.txt: Finds every instance of "old" and replaces it with "new" directly in the file (the -i stands for "in-place").
+
+🚀Lesson 5: GitOps & Deployment Strategies
+5.1 Argo CD (The Pull Model)
+Traditional Jenkins "pushes" code to the server. Argo CD "pulls" it.
+
+Advantage: If someone manually changes a setting in Kubernetes (Configuration Drift), Argo CD will detect it and automatically "Sync" it back to what is in Git.
+
+5.2 Deployment Types
+Blue-Green: Two identical environments. Switch 100% traffic to Green. Safe but expensive (2x resources).
+
+Canary: Small percentage (5%) gets the new version. If logs (in ELK) look good, roll out to 100%.
